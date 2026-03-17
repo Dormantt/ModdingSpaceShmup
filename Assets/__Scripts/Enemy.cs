@@ -57,6 +57,20 @@ public class Enemy : MonoBehaviour
         pos = tempPos;
     }
 
+    public void TakeDamage(float dmg)
+    {
+        health -= dmg;
+        if (health <= 0)
+        {
+            if (!calledShipDestroyed)
+            {
+                calledShipDestroyed = true;
+                Main.SHIP_DESTROYED(this);
+            }
+            Destroy(this.gameObject);
+        }
+    }
+
     void OnCollisionEnter(Collision coll)
     {
         GameObject otherGO = coll.gameObject;
@@ -65,6 +79,9 @@ public class Enemy : MonoBehaviour
         ProjectileHero p = otherGO.GetComponent<ProjectileHero>();
         if (p != null)
         {                                                  
+            if (p.isEnemy) {
+                return; // Enemies do not take damage from their own projectiles
+            }
             // Only damage this Enemy if it’s on screen
             if (bndCheck.isOnScreen)
             {                                      

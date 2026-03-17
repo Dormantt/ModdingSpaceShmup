@@ -41,7 +41,7 @@ public class PowerUp : MonoBehaviour
         vel.Normalize();   // Normalizing a Vector3 sets its length to 1m
 
         vel *= Random.Range(driftMinMax.x, driftMinMax.y);                    // d
-        rigid.velocity = vel;
+        rigid.linearVelocity = vel;
 
         // Set the rotation of this PowerUp GameObject to R:[ 0, 0, 0 ]
         transform.rotation = Quaternion.identity;
@@ -103,6 +103,14 @@ public class PowerUp : MonoBehaviour
         cubeMat.color = def.powerUpColor;  // Set the color of PowerCube
                                            //letter.color = def.color;        // We could colorize the letter too
         letter.text = def.letter;          // Set the letter that is shown
+
+        // Laser-specific overrides
+        if (wt == eWeaponType.laser)
+        {
+            cubeMat.color = Color.red;
+            letter.text = "L";
+        }
+
         _type = wt;                         // Finally actually set the type
     }
 

@@ -93,9 +93,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 67eaeaacb965241139ed0c6862a47387, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  speed: 10
+  speed: 14
   fireRate: 0.3
-  health: 10
+  health: 12
   score: 100
   waveFrequency: 2
   waveWidth: 4

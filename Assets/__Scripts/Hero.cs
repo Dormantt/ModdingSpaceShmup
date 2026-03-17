@@ -2,112 +2,121 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+[RequireComponent(typeof(BoundsCheck))]
 public class Hero : MonoBehaviour
 {
-
-    static public Hero S { get; private set; }  // Singleton property    // a
+    static public Hero S { get; private set; }
 
     [Header("Inscribed")]
-    // These fields control the movement of the ship
-    public float speed = 30;
-    public float rollMult = -45;
-    public float pitchMult = 30;
+    public float maxSpeed = 30;
+    public float rollDegrees = 25;
+    public float rollSmoothing = 20;
+    public float boundsPadding = 0.75f;
+    public float invincibleTime = 1.0f;
+
     public GameObject projectilePrefab;
     public float projectileSpeed = 40;
     public Weapon[] weapons;
 
     [Header("Dynamic")]
     [Range(0, 4)]
-    [SerializeField]                                        // b
+    [SerializeField]
     private float _shieldLevel = 1;
 
     [Tooltip("This field holds a reference to the last triggering GameObject")]
     private GameObject lastTriggerGo = null;
 
-    // Declare a new delegate type WeaponFireDelegate
-    public delegate void WeaponFireDelegate();                                // a     // Create a WeaponFireDelegate event named fireEvent.
+    public delegate void WeaponFireDelegate();
     public event WeaponFireDelegate fireEvent;
 
-
+    private BoundsCheck bndCheck;
+    private float currentRoll;
+    private float nextDamageAllowedTime;
 
     void Awake()
     {
         if (S == null)
         {
-            S = this; // Set the Singleton only if it’s null                  // c
+            S = this;
         }
         else
         {
             Debug.LogError("Hero.Awake() - Attempted to assign second Hero.S!");
         }
-        //fireEvent += TempFire;
 
-        // Reset the weapons to start _Hero with 1 blaster
+        bndCheck = GetComponent<BoundsCheck>();
+
         ClearWeapons();
         weapons[0].SetType(eWeaponType.blaster);
     }
 
     void Update()
     {
-        // Pull in information from the Input class
-        float hAxis = Input.GetAxis("Horizontal");                            // d
-        float vAxis = Input.GetAxis("Vertical");                              // d
+        float hAxis = Input.GetAxisRaw("Horizontal");
+        float vAxis = Input.GetAxisRaw("Vertical");
 
-        // Change transform.position based on the axes
-        Vector3 pos = transform.position;
-        pos.x += hAxis * speed * Time.deltaTime;
-        pos.y += vAxis * speed * Time.deltaTime;
+        Vector3 inputDir = new Vector3(hAxis, vAxis, 0);
+        if (inputDir.magnitude > 1f) inputDir.Normalize();
+
+        Vector3 desiredVelocity = inputDir * maxSpeed;
+        Vector3 pos = transform.position + desiredVelocity * Time.deltaTime;
+        if (bndCheck != null)
+        {
+            float xMin = -bndCheck.camWidth + boundsPadding;
+            float xMax = bndCheck.camWidth - boundsPadding;
+            float yMin = -bndCheck.camHeight + boundsPadding;
+            float yMax = bndCheck.camHeight - boundsPadding;
+            pos.x = Mathf.Clamp(pos.x, xMin, xMax);
+            pos.y = Mathf.Clamp(pos.y, yMin, yMax);
+        }
         transform.position = pos;
 
-        // Rotate the ship to make it feel more dynamic                       // e
-        transform.rotation = Quaternion.Euler(vAxis * pitchMult, hAxis * rollMult, 0);
+        float targetRoll = -hAxis * rollDegrees;
+        float smoothT = 1f - Mathf.Exp(-rollSmoothing * Time.deltaTime);
+        currentRoll = Mathf.Lerp(currentRoll, targetRoll, smoothT);
+        transform.rotation = Quaternion.Euler(vAxis * (rollDegrees * 0.5f), currentRoll, 0);
 
-        // Allow the ship to fire
-        //if (Input.GetKeyDown(KeyCode.Space))
-        //{
-        //    TempFire();
-        //}
-
-        // Use the fireEvent to fire Weapons when the Spacebar is pressed.
         if (Input.GetAxis("Jump") == 1 && fireEvent != null)
         {
             fireEvent();
         }
-
     }
 
+    public void TakeDamage()
+    {
+        if (Time.time < nextDamageAllowedTime) return;
+        nextDamageAllowedTime = Time.time + invincibleTime;
+        shieldLevel--;
+    }
 
-    //void TempFire()
-    //{
-    //    GameObject projGO = Instantiate<GameObject>(projectilePrefab);
-    //    projGO.transform.position = transform.position;
-    //    Rigidbody rigidB = projGO.GetComponent<Rigidbody>();
-    //    //rigidB.velocity = Vector3.up * projectileSpeed;
-
-    //    ProjectileHero proj = projGO.GetComponent<ProjectileHero>();         // h
-    //    proj.type = eWeaponType.blaster;
-    //    float tSpeed = Main.GET_WEAPON_DEFINITION(proj.type).velocity;
-    //    rigidB.velocity = Vector3.up * tSpeed;
-
-    //}
+    // Resolve the correct GameObject to check for components.
+    // Projectiles are parented to _ProjectileAnchor, so transform.root gives the anchor,
+    // not the projectile itself. We detect projectiles first via the actual hit object.
+    private GameObject ResolveHitObject(GameObject hitObj, out ProjectileHero proj)
+    {
+        proj = hitObj.GetComponent<ProjectileHero>();
+        if (proj != null)
+            return hitObj;               // Use projectile directly
+        return hitObj.transform.root.gameObject; // Use root for enemies / powerups
+    }
 
     void OnTriggerEnter(Collider other)
     {
-        Transform rootT = other.gameObject.transform.root;                    // a
-        GameObject go = rootT.gameObject;
-        //Debug.Log("Shield trigger hit by: " + go.gameObject.name);
+        ProjectileHero p;
+        GameObject go = ResolveHitObject(other.gameObject, out p);
 
-        // Make sure it’s not the same triggering go as last time
-        if (go == lastTriggerGo) return;                                    // c
-        lastTriggerGo = go;                                                   // d
+        if (go == lastTriggerGo) return;
+        lastTriggerGo = go;
 
-        Enemy enemy = go.GetComponent<Enemy>();                               // e
+        Enemy enemy = go.GetComponent<Enemy>();
         PowerUp pUp = go.GetComponent<PowerUp>();
 
-        if (enemy != null)
-        {  // If the shield was triggered by an enemy
-            shieldLevel--;        // Decrease the level of the shield by 1
-            Destroy(go);          // … and Destroy the enemy                  // f
+        if (enemy != null || (p != null && p.isEnemy))
+        {
+            if (Time.time < nextDamageAllowedTime) return;
+            nextDamageAllowedTime = Time.time + invincibleTime;
+            shieldLevel--;
+            Destroy(go);
         }
         else if (pUp != null)
         {
@@ -115,80 +124,82 @@ public class Hero : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("Shield trigger hit by non-Enemy: " + go.name);    // g
+            Debug.LogWarning("Shield trigger hit by non-Enemy: " + go.name);
+        }
+    }
+
+    void OnCollisionEnter(Collision coll)
+    {
+        ProjectileHero p;
+        GameObject go = ResolveHitObject(coll.gameObject, out p);
+
+        if (go == lastTriggerGo) return;
+        lastTriggerGo = go;
+
+        Enemy enemy = go.GetComponent<Enemy>();
+
+        if (enemy != null || (p != null && p.isEnemy))
+        {
+            if (Time.time < nextDamageAllowedTime) return;
+            nextDamageAllowedTime = Time.time + invincibleTime;
+            shieldLevel--;
+            Destroy(go);
         }
     }
 
     public float shieldLevel
     {
-        get { return (_shieldLevel); }                                      // b
+        get { return _shieldLevel; }
         private set
-        {                                                         // c
-            _shieldLevel = Mathf.Min(value, 4);                             // d
-            // If the shield is going to be set to less than zero…
+        {
+            _shieldLevel = Mathf.Min(value, 4);
             if (value < 0)
-            {                                                  // e
-                Destroy(this.gameObject);  // Destroy the Hero
+            {
+                Destroy(this.gameObject);
                 Main.HERO_DIED();
             }
         }
     }
 
-    /// <summary>
-    /// Finds the first empty Weapon slot (i.e., type=none) and returns it.
-    /// </summary>
-    /// <returnsThe first empty Weapon slot or null if none are empty</returns
     Weapon GetEmptyWeaponSlot()
     {
         for (int i = 0; i < weapons.Length; i++)
         {
             if (weapons[i].type == eWeaponType.none)
-            {
-                return (weapons[i]);
-            }
+                return weapons[i];
         }
-        return (null);
+        return null;
     }
 
-    /// <summary>
-    /// Sets the type of all Weapon slots to none
-    /// </summary>
     void ClearWeapons()
     {
         foreach (Weapon w in weapons)
-        {
             w.SetType(eWeaponType.none);
-        }
     }
 
     public void AbsorbPowerUp(PowerUp pUp)
     {
-        Debug.Log("Absorbed PowerUp: " + pUp.type);                         // b
+        Debug.Log("Absorbed PowerUp: " + pUp.type);
         switch (pUp.type)
         {
-            case eWeaponType.shield:                                              // a 
+            case eWeaponType.shield:
                 shieldLevel++;
                 break;
 
-            default:                                                             // b
+            default:
                 if (pUp.type == weapons[0].type)
-                { // If it is the same type     // c
+                {
                     Weapon weap = GetEmptyWeaponSlot();
                     if (weap != null)
-                    {
-                        // Set it to pUp.type
                         weap.SetType(pUp.type);
-                    }
                 }
                 else
-                { // If this is a different weapon type                   // d
+                {
                     ClearWeapons();
                     weapons[0].SetType(pUp.type);
                 }
                 break;
-
         }
         pUp.AbsorbedBy(this.gameObject);
     }
-
 }
