@@ -1563,8 +1563,8 @@ MonoBehaviour:
   powerUpFrequency: 010000000100000002000000050000000400000006000000
   spawnRateStart: 0.3
   spawnRateIncreasePerMinute: 0.3
-  spawnRateMax: 3
-  burstSpawnChance: 0.35
+  spawnRateMax: 4
+  burstSpawnChance: 0.437
   burstSpawnMin: 2
   burstSpawnMax: 3
   enemySpawnPerSecond: 1
